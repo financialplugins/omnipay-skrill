@@ -12,6 +12,7 @@ use Omnipay\Common\Message\RedirectResponseInterface;
  */
 class PaymentResponse extends AbstractResponse implements RedirectResponseInterface
 {
+    private $responseData = NULL;
     /**
      * @return false
      */
@@ -56,9 +57,23 @@ class PaymentResponse extends AbstractResponse implements RedirectResponseInterf
      */
     public function getSessionId()
     {
-        return preg_match('~SESSION_ID=([0-9a-fA-F]+)~', $this->data->getHeader('Set-Cookie')[0], $matches)
+        $cookie = $this->data->getHeader('Set-Cookie');
+        return 
+            (
+                is_array($cookie) &&
+                count($cookie) &&
+                preg_match('~SESSION_ID=([0-9a-fA-F]+)~', $cookie[0], $matches)
+            )
             ? $matches[1]
             : null;
+    }
+    
+    public function getData()
+    {
+        if (is_null($this->responseData)) {
+            $this->responseData = $this->data->getBody()->getContents();
+        }
+        return $this->responseData;
     }
     
     public function getTransactionReference()
@@ -96,7 +111,19 @@ class PaymentResponse extends AbstractResponse implements RedirectResponseInterf
      */
     public function getMessage()
     {
-        $statusTokens = explode(':', $this->getStatus());
-        return array_pop($statusTokens) ?: null;
+        if ($this->data && $this->data->getStatusCode() == 400) {
+            $data = $this->getData();
+            if ($data) $data = json_decode($data, true);
+            if (is_array($data)) {
+                $error = isset($data['code']) ? $data['code'] : 400;
+                $message = isset($data['message']) ? $data['message'] : 'Unknown server error';
+                return "$message [$error]";
+            } else {
+                return 'Unknown server error [400]';
+            }
+        } else {
+            $statusTokens = explode(':', $this->getStatus());
+            return array_pop($statusTokens) ?: null;
+        }
     }
 }
